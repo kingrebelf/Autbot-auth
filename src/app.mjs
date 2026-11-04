@@ -25,7 +25,10 @@ export function createApp({ issuer, clients, jwks, cookieKeys, adapter, accounts
   const oidc = new Provider(issuer, {
     adapter, clients, jwks,
     cookies:{keys:cookieKeys},
-    features:{devInteractions:{enabled:false},revocation:{enabled:true}},
+    features:{devInteractions:{enabled:false},revocation:{enabled:true},introspection:{enabled:true,allowedPolicy:(_ctx,client,token)=>{
+      const user=token.accountId ? accounts.byId(token.accountId) : null;
+      return client.clientAuthMethod!=='none' && token.kind==='AccessToken' && client.clientId===token.clientId && !!user && !user.disabled && permitted(client.clientId,user.id);
+    }}},
     interactions:{policy,url:(_ctx,interaction)=>`/interaction/${interaction.uid}`},
     pkce:{required:()=>true},
     responseTypes:['code'],

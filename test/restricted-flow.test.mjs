@@ -17,7 +17,7 @@ test('restricted app rejects uninvited users and revocation blocks tokens and SS
  try {
   const owner=accounts.getOrCreate('owner@example.test'); access.bootstrapOwner('strata',owner.id);
   const jwk=generateKeyPairSync('rsa',{modulusLength:2048}).privateKey.export({format:'jwk'}); Object.assign(jwk,{kid:'test',use:'sig',alg:'RS256'});
-  let sent; const {app}=createApp({issuer,clients:[{client_id:'strata',client_secret:'secret-secret-secret-secret-secret',redirect_uris:['http://localhost:4400/callback'],response_types:['code'],grant_types:['authorization_code']}],jwks:{keys:[jwk]},cookieKeys:['0123456789abcdef0123456789abcdef'],adapter:objects.Adapter,accounts,challenges,access,restrictedClients:['strata'],sendCode:async(email,code)=>{sent={email,code};}});
+  let sent; const {app}=createApp({issuer,clients:[{client_id:'strata',client_secret:'secret-secret-secret-secret-secret',redirect_uris:['http://localhost:4400/callback'],response_types:['code'],grant_types:['authorization_code']},{client_id:'other',client_secret:'other-secret-other-secret-other-secret',redirect_uris:['http://localhost:4401/callback'],response_types:['code'],grant_types:['authorization_code']}],jwks:{keys:[jwk]},cookieKeys:['0123456789abcdef0123456789abcdef'],adapter:objects.Adapter,accounts,challenges,access,restrictedClients:['strata'],sendCode:async(email,code)=>{sent={email,code};}});
   const verifier='a'.repeat(64), challenge=createHash('sha256').update(verifier).digest('base64url');
   const query={client_id:'strata',redirect_uri:'http://localhost:4400/callback',response_type:'code',scope:'openid email',state:'s',code_challenge:challenge,code_challenge_method:'S256'};
   const attempt=async agent=>{
@@ -37,7 +37,13 @@ test('restricted app rejects uninvited users and revocation blocks tokens and SS
   await agent.get('/manage/strata').expect(403);
   const token=await request(app).post('/token').auth('strata','secret-secret-secret-secret-secret').type('form').send({grant_type:'authorization_code',code,redirect_uri:'http://localhost:4400/callback',code_verifier:verifier}).expect(200);
   await request(app).get('/me').set('Authorization',`Bearer ${token.body.access_token}`).expect(200);
+  let introspection=await request(app).post('/token/introspection').auth('strata','secret-secret-secret-secret-secret').type('form').send({token:token.body.access_token}).expect(200);
+  assert.equal(introspection.body.active,true); assert.equal(introspection.body.client_id,'strata');
+  const wrongClient=await request(app).post('/token/introspection').auth('other','other-secret-other-secret-other-secret').type('form').send({token:token.body.access_token}).expect(200);
+  assert.equal(wrongClient.body.active,false);
   access.revoke('strata',owner.id,'guest@example.test');
+  introspection=await request(app).post('/token/introspection').auth('strata','secret-secret-secret-secret-secret').type('form').send({token:token.body.access_token}).expect(200);
+  assert.equal(introspection.body.active,false);
   await request(app).get('/me').set('Authorization',`Bearer ${token.body.access_token}`).expect(401);
   const retry=await agent.get('/auth').query(query); assert.equal(retry.status,303,'revoked session should redirect without authorizing');
   const deniedInteraction=new URL(retry.headers.location,issuer);
