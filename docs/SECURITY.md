@@ -11,7 +11,7 @@ Only verified mailbox control creates an account. Email authentication depends o
 ## Remaining work before production
 
 - Independently review OIDC adapter semantics, atomicity under concurrent requests, browser flows, session revocation and account-linking.
-- Test the Docker/Caddy deployment and restore end to end on Linux using a real TLS SMTP server.
+- Test public certificate provisioning and delivery through a real SMTP provider, and repeat Docker/Caddy and restore tests in the intended Linux deployment. An isolated Docker test with a local STARTTLS SMTP server and Caddy internal TLS passed.
 - Add IPv6-aware network limits, operational monitoring and alerts, request and mail-spend caps that cannot trivially deny service to everyone, and an incident response procedure.
 - Add stronger authentication for administrative and sensitive accounts, a tested key rotation and compromise recovery procedure, and an audited migration strategy.
 - Add schema migration/versioning and verify backup/restore across releases; current backup snapshots do not coordinate concurrent admin configuration changes.

@@ -2,7 +2,7 @@
 
 A self-hosted OpenID Connect identity service with passwordless email sign-in and self-registration. Run one identity server and connect multiple apps that support a configurable OIDC provider.
 
-> **Development preview:** This project has not had an independent security review. The Docker deployment and a real SMTP service have not yet been verified end to end. Do not use it for production accounts or sensitive data yet. Node's built-in SQLite module currently emits an experimental-feature warning.
+> **Development preview:** This project has not had an independent security review. A containerized login, local TLS SMTP delivery, backup and restore, and Caddy proxy have been tested in an isolated environment. Public certificate provisioning and delivery through a real SMTP provider have not yet been tested. Do not use it for production accounts or sensitive data yet. Node's built-in SQLite module currently emits an experimental-feature warning.
 
 ![Sign-in screen](docs/sign-in.png)
 ![Email-code screen](docs/verify.png)
