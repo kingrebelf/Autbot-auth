@@ -34,6 +34,7 @@ test('restricted app rejects uninvited users and revocation blocks tokens and SS
   res=await agent.post(path+'/consent').set('Origin',issuer).type('form').send({}).expect(303);
   const resume=new URL(res.headers.location,issuer); res=await agent.get(resume.pathname+resume.search).expect(303);
   const code=new URL(res.headers.location).searchParams.get('code'); assert.ok(code);
+  await agent.get('/manage/strata').expect(403);
   const token=await request(app).post('/token').auth('strata','secret-secret-secret-secret-secret').type('form').send({grant_type:'authorization_code',code,redirect_uri:'http://localhost:4400/callback',code_verifier:verifier}).expect(200);
   await request(app).get('/me').set('Authorization',`Bearer ${token.body.access_token}`).expect(200);
   access.revoke('strata',owner.id,'guest@example.test');

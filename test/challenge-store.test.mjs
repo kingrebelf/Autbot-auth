@@ -55,3 +55,13 @@ test('persistent global daily send budget is capped and resets', () => {
  assert.equal(s.issue({...challenge,interaction:'next',email:'next@example.test',ip:'next'}),true);
  s.close();
 });
+
+
+test('invitations and sign-in codes share email send budgets', () => {
+ const s=new ChallengeStore(':memory:',secret);
+ assert.equal(s.reserveEmail('person@example.test','192.0.2.1'),true);
+ assert.equal(s.reserveEmail('person@example.test','192.0.2.1'),true);
+ assert.equal(s.issue(challenge),true);
+ assert.equal(s.reserveEmail('person@example.test','192.0.2.1'),false);
+ s.close();
+});

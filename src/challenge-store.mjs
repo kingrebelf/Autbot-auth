@@ -14,30 +14,33 @@ export class ChallengeStore {
   }
   bucket(kind, value) { return createHmac('sha256', this.secret).update('autbot-auth:rate:v1\0').update(kind).update('\0').update(value).digest('hex'); }
   transaction(fn) { this.db.exec('BEGIN IMMEDIATE'); try { const result=fn(); this.db.exec('COMMIT'); return result; } catch(error) { this.db.exec('ROLLBACK'); throw error; } }
+  // Called inside a transaction so all message types share the same budget.
+  reserveInTransaction(email, ip, now) {
+    this.db.prepare('DELETE FROM rate_windows WHERE start <= ?').run(now-3_600_000);
+    const select=this.db.prepare('SELECT count FROM rate_windows WHERE bucket=?');
+    const incr=this.db.prepare(`INSERT INTO rate_windows(bucket,start,count) VALUES(?,?,1) ON CONFLICT(bucket) DO UPDATE SET count=count+1`);
+    const global=this.bucket('global','all');
+    if ((select.get(global)?.count ?? 0)>=1000) return false;
+    incr.run(global,now);
+    const limits=[[this.bucket('email',email.toLowerCase()),3],[this.bucket('ip',ip),20]];
+    const allowed=limits.every(([bucket,max]) => (select.get(bucket)?.count ?? 0)<max);
+    for (const [bucket] of limits) incr.run(bucket,now);
+    if (!allowed) return false;
+    this.db.prepare('DELETE FROM daily_send_events WHERE at<=?').run(now-86_400_000);
+    if (this.db.prepare('SELECT COUNT(*) AS count FROM daily_send_events').get().count>=80) return false;
+    this.db.prepare('INSERT INTO daily_send_events(at) VALUES(?)').run(now);
+    return true;
+  }
+  reserveEmail(email,ip) {
+    if (!email || !ip) throw new Error('Invalid email budget parameters');
+    return this.transaction(() => this.reserveInTransaction(email,ip,this.now()));
+  }
   issue({ interaction, email, ip, code, ttlMs = 600_000 }) {
     if (!interaction || !email || !ip || ttlMs <= 0 || ttlMs > 600_000) throw new Error('Invalid challenge parameters');
-    const digest=codeDigest(this.secret, interaction, code), now=this.now(), windowMs=3_600_000;
+    const digest=codeDigest(this.secret, interaction, code), now=this.now();
     return this.transaction(() => {
-      this.db.prepare('DELETE FROM rate_windows WHERE start <= ?').run(now-windowMs);
       this.db.prepare('DELETE FROM challenges WHERE expires <= ?').run(now);
-      const select=this.db.prepare('SELECT count FROM rate_windows WHERE bucket=?');
-      const incr=this.db.prepare(`INSERT INTO rate_windows(bucket,start,count) VALUES(?,?,1) ON CONFLICT(bucket) DO UPDATE SET count=count+1`);
-      // Count global requests first and stop recording new attacker-controlled keys
-      // when the global budget is exhausted, bounding table growth per window.
-      const global=this.bucket('global','all');
-      if ((select.get(global)?.count ?? 0) >= 1000) return false;
-      incr.run(global,now);
-      const limits=[[this.bucket('email',email.toLowerCase()),3],[this.bucket('ip',ip),20]];
-      const allowed=limits.every(([bucket,max]) => (select.get(bucket)?.count ?? 0)<max);
-      for (const [bucket] of limits) incr.run(bucket,now);
-      if (!allowed) return false;
-      // One persistent rolling-day budget, keeping normal use under Resend's
-      // 100/day and 3,000/month free allowance. Mail sent by other systems
-      // sharing the same provider account is outside this budget.
-      this.db.prepare('DELETE FROM daily_send_events WHERE at<=?').run(now-86_400_000);
-      const daily=this.db.prepare('SELECT COUNT(*) AS count FROM daily_send_events').get();
-      if (daily.count>=80) return false;
-      this.db.prepare('INSERT INTO daily_send_events(at) VALUES(?)').run(now);
+      if (!this.reserveInTransaction(email,ip,now)) return false;
       this.db.prepare(`INSERT INTO challenges(interaction,email,digest,expires,attempts) VALUES(?,?,?,?,0) ON CONFLICT(interaction) DO UPDATE SET email=excluded.email,digest=excluded.digest,expires=excluded.expires,attempts=0`).run(interaction,email,digest,now+ttlMs);
       return true;
     });

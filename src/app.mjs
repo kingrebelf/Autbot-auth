@@ -6,7 +6,7 @@ import { createCode } from './email-code.mjs';
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const page = (title, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Autbot Auth</title><link rel="stylesheet" href="/style.css"></head><body><main><div class="brand"><span>✦</span> AUTBOT AUTH</div><h1>${esc(title)}</h1>${body}</main></body></html>`;
 const emailPattern=/^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,63}$/;
-export function createApp({ issuer, clients, jwks, cookieKeys, adapter, accounts, challenges, sendCode, trustProxy = false, access = null, restrictedClients = [] }) {
+export function createApp({ issuer, clients, jwks, cookieKeys, adapter, accounts, challenges, sendCode, trustProxy = false, access = null, restrictedClients = [], sendInvitation = null }) {
   const restricted=new Set(restrictedClients);
   if (restricted.size && !access) throw new Error('Restricted clients require an access store');
   const permitted=(clientId, accountId) => !restricted.has(clientId) || !!access?.hasAccess(clientId,accountId);
@@ -20,7 +20,7 @@ export function createApp({ issuer, clients, jwks, cookieKeys, adapter, accounts
   app.disable('x-powered-by');
   app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'none'"],styleSrc:["'self'"],formAction:["'self'"],baseUri:["'none'"],frameAncestors:["'none'"]}}}));
   app.use((req,res,next) => { res.set('Cache-Control','no-store'); res.set('Referrer-Policy','same-origin'); next(); });
-  app.use('/interaction',express.urlencoded({extended:false,limit:'4kb',parameterLimit:8}));
+  app.use(['/interaction','/manage'],express.urlencoded({extended:false,limit:'4kb',parameterLimit:8}));
   app.get('/style.css', (_req,res) => res.type('css').send(`*{box-sizing:border-box}body{margin:0;background:#f1f5f5;color:#132c32;font:16px system-ui,sans-serif;min-height:100vh;display:grid;place-items:center;padding:24px}main{width:min(440px,100%);background:white;border:1px solid #dbe6e5;border-radius:20px;padding:42px;box-shadow:0 16px 50px #173b3b12}.brand{font-size:12px;font-weight:800;letter-spacing:.12em;color:#25786c}.brand span{font-size:20px}h1{font-size:30px;letter-spacing:-.04em;margin:24px 0 12px}p{line-height:1.5;color:#536a6a}label{display:block;font-weight:650;margin:22px 0 8px}input{font:inherit;width:100%;border:1px solid #b9ceca;border-radius:9px;padding:13px}button{font:inherit;font-weight:700;width:100%;border:0;border-radius:9px;background:#126f60;color:white;padding:14px;margin-top:16px;cursor:pointer}.note{font-size:13px;margin-top:24px}`));
   const oidc = new Provider(issuer, {
     adapter, clients, jwks,
@@ -79,6 +79,35 @@ export function createApp({ issuer, clients, jwks, cookieKeys, adapter, accounts
     if(prompt.details.missingOIDCScope) grant.addOIDCScope(prompt.details.missingOIDCScope.join(' '));
     if(prompt.details.missingOIDCClaims) grant.addOIDCClaims(prompt.details.missingOIDCClaims);
     return oidc.interactionFinished(req,res,{consent:{grantId:await grant.save()}},{mergeWithLastSubmission:true});
+  });
+  // The management page is available only to the verified owner of a
+  // restricted client. No authorization decision trusts an email parameter.
+  const ownerSession=async(req,res,next)=>{
+    if (!restricted.has(req.params.clientId) || !access) return res.sendStatus(404);
+    const session=await oidc.Session.get({req,res,secure:new URL(issuer).protocol==='https:'});
+    if (!session.accountId || !access.isOwner(req.params.clientId,session.accountId)) return res.sendStatus(403);
+    req.ownerId=session.accountId; next();
+  };
+  app.get('/manage/:clientId',ownerSession,(req,res)=>{
+    const name=esc(req.params.clientId), endpoint='/manage/'+encodeURIComponent(req.params.clientId);
+    const rows=access.list(req.params.clientId,req.ownerId).map(({email})=>`<li>${esc(email)}<form method="post" action="${endpoint}/revoke"><input type="hidden" name="email" value="${esc(email)}"><button>Remove access</button></form></li>`).join('');
+    res.send(page('Manage invitations',`<p>Only invited email addresses can access ${name}.</p><form method="post" action="${endpoint}/invite"><label for="invite-email">Email address</label><input id="invite-email" type="email" name="email" maxlength="254" required><button>Send invitation</button></form><h2>Invited people</h2><ul>${rows || '<li>No invitations yet.</li>'}</ul>`));
+  });
+  app.post('/manage/:clientId/invite',sameOrigin,ownerSession,async(req,res)=>{
+    if (typeof sendInvitation !== 'function') return res.status(503).send(page('Invitations unavailable','<p>Email invitations are not configured.</p>'));
+    const raw=typeof req.body.email==='string' ? req.body.email.trim() : '';
+    const at=raw.lastIndexOf('@'); const email=at<0 ? raw : raw.slice(0,at)+'@'+raw.slice(at+1).toLowerCase();
+    if (email.length>254 || !emailPattern.test(email)) return res.status(400).send(page('Check the email address','<p>Please enter a valid email address.</p>'));
+    if (!challenges.reserveEmail(email,req.ip)) return res.status(429).send(page('Please try later','<p>The email sending limit has been reached.</p>'));
+    access.invite(req.params.clientId,req.ownerId,email);
+    try { await sendInvitation(email,req.params.clientId); }
+    catch { console.error('Invitation email delivery failed'); return res.status(502).send(page('Invitation saved','<p>Access was granted, but the invitation email could not be sent. You can retry or remove access.</p>')); }
+    res.redirect(303,'/manage/'+encodeURIComponent(req.params.clientId));
+  });
+  app.post('/manage/:clientId/revoke',sameOrigin,ownerSession,(req,res)=>{
+    try { access.revoke(req.params.clientId,req.ownerId,req.body.email); }
+    catch { return res.sendStatus(400); }
+    res.redirect(303,'/manage/'+encodeURIComponent(req.params.clientId));
   });
   app.use(oidc.callback());
   app.use((_req,res)=>res.sendStatus(404));

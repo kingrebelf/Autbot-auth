@@ -13,7 +13,7 @@ A self-hosted OpenID Connect identity service with passwordless email sign-in an
 2. The user enters their email address and a short-lived code sent to that address. A new account is created after verification.
 3. The user consents and returns to the app. Returning users can reuse their identity-server session.
 
-Open registration is enabled. Invitation-policy storage is under development but is not connected to sign-in or any app. There is no enforced app-specific user allowlist or user-facing admin dashboard yet. Everyone who can verify an email may create an account; each app must enforce its own access policy.
+Open registration is enabled. Invitation enforcement and management are being developed but are not wired into the server deployment or any app. There is no enforced app-specific user allowlist or user-facing admin dashboard yet. Everyone who can verify an email may create an account; each app must enforce its own access policy.
 
 ## Requirements
 
@@ -97,7 +97,7 @@ There is no automated migration or rollback system yet. Keep the previous code v
 
 ## Security and limitations
 
-Codes are eight random digits, keyed before storage, bound to the login interaction, expire after ten minutes, and are single-use with a five-guess limit. Persistent hourly send limits apply per email, IP and globally. This development branch also limits sign-in-code send attempts to 80 per rolling 24 hours. Invitation emails are not implemented or counted yet; the cap cannot account for other applications using the same SMTP account, or backup rollbacks. Forms require a matching Origin, OIDC requires PKCE, and redirect URIs must be registered exactly. SMTP uses TLS. These are defenses, not a guarantee against abuse: a global quota can itself be exhausted, mail accounts can be compromised, and upstream network-level throttling and monitoring are still needed. Email alone is not MFA.
+Codes are eight random digits, keyed before storage, bound to the login interaction, expire after ten minutes, and are single-use with a five-guess limit. Persistent hourly send limits apply per email, IP and globally. The development branch limits sign-in and invitation email attempts to 80 per rolling 24 hours when invitation email is configured. This cap cannot account for other applications using the same SMTP account, or backup rollbacks. Forms require a matching Origin, OIDC requires PKCE, and redirect URIs must be registered exactly. SMTP uses TLS. These are defenses, not a guarantee against abuse: a global quota can itself be exhausted, mail accounts can be compromised, and upstream network-level throttling and monitoring are still needed. Email alone is not MFA.
 
 This preview does not yet offer MFA/passkeys, fine-grained per-app access control, self-service session management, an admin dashboard, a key-rotation procedure, a security audit, or production-ready observability. See [security notes](docs/SECURITY.md).
 
