@@ -6,6 +6,7 @@ import { createApp } from './app.mjs';
 import { createSqliteAdapter } from './oidc-adapter.mjs';
 import { AccountStore } from './accounts.mjs';
 import { ChallengeStore } from './challenge-store.mjs';
+import { AccessStore } from './access-store.mjs';
 
 const dir=resolve(process.env.AUTBOT_CONFIG_DIR || './data');
 mkdirSync(dir,{recursive:true,mode:0o700});
@@ -16,9 +17,14 @@ const smtpPort=Number(process.env.SMTP_PORT || 587);
 if(!Number.isInteger(smtpPort) || smtpPort<1 || smtpPort>65535) throw new Error('Invalid SMTP port');
 const transport=nodemailer.createTransport({host:SMTP_HOST,port:smtpPort,secure:smtpPort===465,requireTLS:smtpPort!==465,auth:SMTP_USER ? {user:SMTP_USER,pass:SMTP_PASSWORD} : undefined});
 const dbPath=resolve(dir,'autbot.sqlite');
-const objects=createSqliteAdapter(dbPath); const accounts=new AccountStore(dbPath); const challenges=new ChallengeStore(dbPath,config.codeSecret);
-const {app}=createApp({issuer:config.issuer,clients:config.clients,jwks:config.jwks,cookieKeys:config.cookieKeys,adapter:objects.Adapter,accounts,challenges,trustProxy:process.env.TRUST_PROXY==='1' ? 1 : false,
- sendCode:async(email,code)=>transport.sendMail({from:SMTP_FROM,to:email,subject:'Your Autbot Auth sign-in code',text:`Your sign-in code is ${code}. It expires in 10 minutes. If you did not request it, you can ignore this message.`})});
+const objects=createSqliteAdapter(dbPath); const accounts=new AccountStore(dbPath); const challenges=new ChallengeStore(dbPath,config.codeSecret); const access=new AccessStore(dbPath);
+const restrictedApps=config.restrictedApps || {};
+for (const [id,url] of Object.entries(restrictedApps)) {
+ if (!config.clients.some(c=>c.client_id===id) || new URL(url).protocol!=='https:') throw new Error('Invalid restricted app configuration');
+}
+const {app}=createApp({issuer:config.issuer,clients:config.clients,jwks:config.jwks,cookieKeys:config.cookieKeys,adapter:objects.Adapter,accounts,challenges,access,restrictedClients:Object.keys(restrictedApps),trustProxy:process.env.TRUST_PROXY==='1' ? 1 : false,
+ sendCode:async(email,code)=>transport.sendMail({from:SMTP_FROM,to:email,subject:'Your Autbot Auth sign-in code',text:`Your sign-in code is ${code}. It expires in 10 minutes. If you did not request it, you can ignore this message.`}),
+ sendInvitation:async(email,clientId)=>transport.sendMail({from:SMTP_FROM,to:email,subject:'You have been invited to an application',text:`You have been invited to sign in at ${restrictedApps[clientId]}. Sign in with this email address to accept. If you did not expect this invitation, you can ignore this message.`})});
 const cleanupTimer=setInterval(() => {
  try { objects.cleanup(); challenges.cleanup(); } catch { console.error('Storage cleanup failed'); }
 }, 15 * 60 * 1000);

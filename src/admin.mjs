@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
 import { randomBytes, generateKeyPairSync } from 'node:crypto';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { AccessStore } from './access-store.mjs';
 
 const dir=resolve(process.env.AUTBOT_CONFIG_DIR || './data');
 const file=resolve(dir,'config.json');
@@ -26,6 +27,21 @@ if(command==='init') {
  const clientSecret=secret();
  config.clients.push({client_id:id,client_secret:clientSecret,redirect_uris:[url.href],response_types:['code'],grant_types:['authorization_code'],token_endpoint_auth_method:'client_secret_basic'});
  writeFileSync(file,JSON.stringify(config,null,2)+'\n',{mode:0o600}); console.log(`Client ID: ${id}\nClient secret: ${clientSecret}\nRedirect URI: ${url.href}\nRestart the service to load changes. Store the secret securely.`);
+} else if(command==='restrict-client') {
+ const [id,ownerEmail,appUrl]=args;
+ if(!id || !ownerEmail || !appUrl) throw new Error('Usage: restrict-client client-id verified-owner-email https://app.example.com/');
+ const url=new URL(appUrl); if(url.protocol!=='https:' || url.username || url.password || url.hash) throw new Error('Application URL must be HTTPS and contain no credentials or fragment');
+ const config=JSON.parse(readFileSync(file,'utf8'));
+ if(!config.clients.some(c=>c.client_id===id)) throw new Error('Client does not exist');
+ const db=new DatabaseSync(resolve(dir,'autbot.sqlite'));
+ const owner=db.prepare('SELECT id FROM accounts WHERE email=? AND disabled=0').get(ownerEmail); db.close();
+ if(!owner) throw new Error('Owner must first sign in with a verified email');
+ const access=new AccessStore(resolve(dir,'autbot.sqlite'));
+ try { if(!access.bootstrapOwner(id,owner.id) && !access.isOwner(id,owner.id)) throw new Error('This app already has a different owner'); }
+ finally { access.close(); }
+ config.restrictedApps={...(config.restrictedApps || {}),[id]:url.href};
+ writeFileSync(file,JSON.stringify(config,null,2)+'\n',{mode:0o600});
+ console.log('Restricted client configured. Restart the service. Owner invitations are available at /manage/'+encodeURIComponent(id));
 } else if(command==='users') {
  const db=new DatabaseSync(resolve(dir,'autbot.sqlite'));
  const users=db.prepare('SELECT id,email,disabled,created_at FROM accounts ORDER BY created_at').all();
@@ -46,4 +62,4 @@ if(command==='init') {
    }
    db.exec('COMMIT'); console.log(command==='disable-user'?'User disabled and provider sessions revoked. Apps must revoke their own sessions separately.':'User enabled.');
  } catch(e) { db.exec('ROLLBACK'); throw e; } finally { db.close(); }
-} else { throw new Error('Commands: init, add-client, users, disable-user, enable-user'); }
+} else { throw new Error('Commands: init, add-client, restrict-client, users, disable-user, enable-user'); }

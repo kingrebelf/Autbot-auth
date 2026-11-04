@@ -13,7 +13,7 @@ A self-hosted OpenID Connect identity service with passwordless email sign-in an
 2. The user enters their email address and a short-lived code sent to that address. A new account is created after verification.
 3. The user consents and returns to the app. Returning users can reuse their identity-server session.
 
-Open registration is enabled. Invitation enforcement and management are being developed but are not wired into the server deployment or any app. There is no enforced app-specific user allowlist or user-facing admin dashboard yet. Everyone who can verify an email may create an account; each app must enforce its own access policy.
+Open registration is enabled. Invitation enforcement and management have prototype server wiring but have not been verified in a deployment or connected to any app. There is no enforced app-specific user allowlist or user-facing admin dashboard yet. Everyone who can verify an email may create an account; each app must enforce its own access policy.
 
 ## Requirements
 
