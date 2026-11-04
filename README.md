@@ -97,7 +97,7 @@ There is no automated migration or rollback system yet. Keep the previous code v
 
 ## Security and limitations
 
-Codes are eight random digits, keyed before storage, bound to the login interaction, expire after ten minutes, and are single-use with a five-guess limit. Persistent hourly send limits apply per email, IP and globally. Forms require a matching Origin, OIDC requires PKCE, and redirect URIs must be registered exactly. SMTP uses TLS. These are defenses, not a guarantee against abuse: a global quota can itself be exhausted, mail accounts can be compromised, and upstream network-level throttling and monitoring are still needed. Email alone is not MFA.
+Codes are eight random digits, keyed before storage, bound to the login interaction, expire after ten minutes, and are single-use with a five-guess limit. Persistent hourly send limits apply per email, IP and globally. This development branch also limits sign-in-code send attempts to 80 per rolling 24 hours. Invitation emails are not implemented or counted yet; the cap cannot account for other applications using the same SMTP account, or backup rollbacks. Forms require a matching Origin, OIDC requires PKCE, and redirect URIs must be registered exactly. SMTP uses TLS. These are defenses, not a guarantee against abuse: a global quota can itself be exhausted, mail accounts can be compromised, and upstream network-level throttling and monitoring are still needed. Email alone is not MFA.
 
 This preview does not yet offer MFA/passkeys, fine-grained per-app access control, self-service session management, an admin dashboard, a key-rotation procedure, a security audit, or production-ready observability. See [security notes](docs/SECURITY.md).
 

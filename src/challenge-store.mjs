@@ -9,7 +9,8 @@ export class ChallengeStore {
     this.secret = secret; this.now = now; this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS challenges (interaction TEXT PRIMARY KEY, email TEXT NOT NULL, digest BLOB NOT NULL, expires INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0);
-      CREATE TABLE IF NOT EXISTS rate_windows (bucket TEXT PRIMARY KEY, start INTEGER NOT NULL, count INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS rate_windows (bucket TEXT PRIMARY KEY, start INTEGER NOT NULL, count INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS daily_send_events (at INTEGER NOT NULL);`);
   }
   bucket(kind, value) { return createHmac('sha256', this.secret).update('autbot-auth:rate:v1\0').update(kind).update('\0').update(value).digest('hex'); }
   transaction(fn) { this.db.exec('BEGIN IMMEDIATE'); try { const result=fn(); this.db.exec('COMMIT'); return result; } catch(error) { this.db.exec('ROLLBACK'); throw error; } }
@@ -30,6 +31,13 @@ export class ChallengeStore {
       const allowed=limits.every(([bucket,max]) => (select.get(bucket)?.count ?? 0)<max);
       for (const [bucket] of limits) incr.run(bucket,now);
       if (!allowed) return false;
+      // One persistent rolling-day budget, keeping normal use under Resend's
+      // 100/day and 3,000/month free allowance. Mail sent by other systems
+      // sharing the same provider account is outside this budget.
+      this.db.prepare('DELETE FROM daily_send_events WHERE at<=?').run(now-86_400_000);
+      const daily=this.db.prepare('SELECT COUNT(*) AS count FROM daily_send_events').get();
+      if (daily.count>=80) return false;
+      this.db.prepare('INSERT INTO daily_send_events(at) VALUES(?)').run(now);
       this.db.prepare(`INSERT INTO challenges(interaction,email,digest,expires,attempts) VALUES(?,?,?,?,0) ON CONFLICT(interaction) DO UPDATE SET email=excluded.email,digest=excluded.digest,expires=excluded.expires,attempts=0`).run(interaction,email,digest,now+ttlMs);
       return true;
     });

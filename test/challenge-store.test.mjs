@@ -43,3 +43,15 @@ test('cleanup removes expired challenges and rate-limit windows', () => {
  assert.equal(s.verify(challenge.interaction,challenge.code),null);
  assert.equal(s.issue(challenge),true); s.close();
 });
+
+
+test('persistent global daily send budget is capped and resets', () => {
+ let now=1000; const s=new ChallengeStore(':memory:',secret,()=>now);
+ for(let i=0;i<80;i++) assert.equal(s.issue({...challenge,interaction:String(i),email:`p${i}@example.test`,ip:`ip${i}`}),true);
+ assert.equal(s.issue({...challenge,interaction:'over',email:'over@example.test',ip:'over'}),false);
+ now+=86_399_999;
+ assert.equal(s.issue({...challenge,interaction:'still-over',email:'still@example.test',ip:'still'}),false);
+ now+=2;
+ assert.equal(s.issue({...challenge,interaction:'next',email:'next@example.test',ip:'next'}),true);
+ s.close();
+});
