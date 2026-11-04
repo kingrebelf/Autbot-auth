@@ -108,4 +108,3 @@ Node.js 24 or newer is required. `npm ci` installs dependencies and `npm test` r
 ## License
 
 MIT. See [LICENSE](LICENSE).
-

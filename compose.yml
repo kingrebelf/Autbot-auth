@@ -1,0 +1,31 @@
+services:
+  auth:
+    build: .
+    restart: unless-stopped
+    environment:
+      SMTP_HOST: ${SMTP_HOST:?Set SMTP_HOST in .env}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:?Set SMTP_FROM in .env}
+      TRUST_PROXY: "1"
+    volumes:
+      - auth-data:/data
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - auth
+volumes:
+  auth-data:
+  caddy-data:
+  caddy-config:

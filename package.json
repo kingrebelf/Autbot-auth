@@ -1,0 +1,36 @@
+{
+  "name": "autbot-auth",
+  "version": "0.0.0",
+  "description": "Self-hosted passwordless email OpenID Connect provider",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "start": "node src/server.mjs",
+    "admin": "node src/admin.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kingrebelf/Autbot-auth.git"
+  },
+  "keywords": [],
+  "author": "",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/kingrebelf/Autbot-auth/issues"
+  },
+  "homepage": "https://github.com/kingrebelf/Autbot-auth#readme",
+  "dependencies": {
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.3",
+    "helmet": "^8.3.0",
+    "nodemailer": "^10.3.1",
+    "oidc-provider": "^9.13.3",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.64.1",
+    "supertest": "^7.3.1"
+  },
+  "private": "true",
+  "license": "MIT"
+}
