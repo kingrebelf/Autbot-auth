@@ -19,5 +19,9 @@ const dbPath=resolve(dir,'autbot.sqlite');
 const objects=createSqliteAdapter(dbPath); const accounts=new AccountStore(dbPath); const challenges=new ChallengeStore(dbPath,config.codeSecret);
 const {app}=createApp({issuer:config.issuer,clients:config.clients,jwks:config.jwks,cookieKeys:config.cookieKeys,adapter:objects.Adapter,accounts,challenges,trustProxy:process.env.TRUST_PROXY==='1' ? 1 : false,
  sendCode:async(email,code)=>transport.sendMail({from:SMTP_FROM,to:email,subject:'Your Autbot Auth sign-in code',text:`Your sign-in code is ${code}. It expires in 10 minutes. If you did not request it, you can ignore this message.`})});
+const cleanupTimer=setInterval(() => {
+ try { objects.cleanup(); challenges.cleanup(); } catch { console.error('Storage cleanup failed'); }
+}, 15 * 60 * 1000);
+cleanupTimer.unref();
 const port=Number(process.env.PORT || 3000); const host=process.env.HOST || '127.0.0.1';
 app.listen(port,host,()=>console.log(`Autbot Auth listening on ${host}:${port}`));

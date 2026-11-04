@@ -20,6 +20,7 @@ export function createApp({ issuer, clients, jwks, cookieKeys, adapter, accounts
     features:{devInteractions:{enabled:false},revocation:{enabled:true}},
     interactions:{url:(_ctx,interaction)=>`/interaction/${interaction.uid}`},
     pkce:{required:()=>true},
+    responseTypes:['code'],
     ttl:{Interaction:900, AuthorizationCode:60, AccessToken:900, IdToken:900, Session:28800, Grant:28800},
     claims:{openid:['sub'],email:['email','email_verified']},
     async findAccount(_ctx,id) {

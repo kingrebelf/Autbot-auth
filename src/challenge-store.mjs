@@ -26,7 +26,7 @@ export class ChallengeStore {
       const global=this.bucket('global','all');
       if ((select.get(global)?.count ?? 0) >= 1000) return false;
       incr.run(global,now);
-      const limits=[[this.bucket('email',email),3],[this.bucket('ip',ip),20]];
+      const limits=[[this.bucket('email',email.toLowerCase()),3],[this.bucket('ip',ip),20]];
       const allowed=limits.every(([bucket,max]) => (select.get(bucket)?.count ?? 0)<max);
       for (const [bucket] of limits) incr.run(bucket,now);
       if (!allowed) return false;
@@ -42,6 +42,14 @@ export class ChallengeStore {
       this.db.prepare('UPDATE challenges SET attempts=attempts+1 WHERE interaction=?').run(interaction);
       if (!verifyCode(this.secret,interaction,code,Buffer.from(row.digest))) return null;
       this.db.prepare('DELETE FROM challenges WHERE interaction=?').run(interaction); return row.email;
+    });
+  }
+  cleanup() {
+    const now=this.now();
+    return this.transaction(() => {
+      const challenges=this.db.prepare('DELETE FROM challenges WHERE expires<=?').run(now).changes;
+      const windows=this.db.prepare('DELETE FROM rate_windows WHERE start<=?').run(now-3_600_000).changes;
+      return {challenges,windows};
     });
   }
   close() { this.db.close(); }

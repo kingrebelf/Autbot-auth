@@ -14,7 +14,7 @@ test('discovery and email verification establish an OIDC authorization', async (
  const store=createSqliteAdapter(':memory:'); const accounts=new AccountStore(':memory:'); const challenges=new ChallengeStore(':memory:','0123456789abcdef0123456789abcdef');
  let sent; const {app}=createApp({issuer, clients:[{client_id:'demo',client_secret:'secret-secret-secret-secret-secret',redirect_uris:['http://localhost:4400/callback'],response_types:['code'],grant_types:['authorization_code'],token_endpoint_auth_method:'client_secret_basic'}],jwks:{keys:[jwk]},cookieKeys:['0123456789abcdef0123456789abcdef'],adapter:store.Adapter,accounts,challenges,sendCode:async(email,code)=>{sent={email,code};}});
  const agent=request.agent(app);
- const discovery=await agent.get('/.well-known/openid-configuration').expect(200); assert.equal(discovery.body.issuer,issuer);
+ const discovery=await agent.get('/.well-known/openid-configuration').expect(200); assert.equal(discovery.body.issuer,issuer); assert.deepEqual(discovery.body.response_types_supported,['code']);
  const verifier='a'.repeat(64), challenge=createHash('sha256').update(verifier).digest('base64url');
  const auth=await agent.get('/auth').query({client_id:'demo',redirect_uri:'http://localhost:4400/callback',response_type:'code',scope:'openid email',state:'state',code_challenge:challenge,code_challenge_method:'S256'}).expect(303);
  let path=new URL(auth.headers.location,issuer).pathname;
