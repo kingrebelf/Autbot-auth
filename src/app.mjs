@@ -1,12 +1,20 @@
 import express from 'express';
 import helmet from 'helmet';
-import Provider from 'oidc-provider';
+import Provider, { interactionPolicy } from 'oidc-provider';
 import { createCode } from './email-code.mjs';
 
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const page = (title, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Autbot Auth</title><link rel="stylesheet" href="/style.css"></head><body><main><div class="brand"><span>✦</span> AUTBOT AUTH</div><h1>${esc(title)}</h1>${body}</main></body></html>`;
 const emailPattern=/^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,63}$/;
-export function createApp({ issuer, clients, jwks, cookieKeys, adapter, accounts, challenges, sendCode, trustProxy = false }) {
+export function createApp({ issuer, clients, jwks, cookieKeys, adapter, accounts, challenges, sendCode, trustProxy = false, access = null, restrictedClients = [] }) {
+  const restricted=new Set(restrictedClients);
+  if (restricted.size && !access) throw new Error('Restricted clients require an access store');
+  const permitted=(clientId, accountId) => !restricted.has(clientId) || !!access?.hasAccess(clientId,accountId);
+  const policy=interactionPolicy.base();
+  policy.add(new interactionPolicy.Prompt({name:'access_denied'}, new interactionPolicy.Check(
+    'not_invited','This account does not have access to this application','access_denied',
+    ctx => !!ctx.oidc.session.accountId && !permitted(ctx.oidc.client.clientId,ctx.oidc.session.accountId)
+  )),1);
   const app=express();
   if (trustProxy) app.set('trust proxy', trustProxy);
   app.disable('x-powered-by');
@@ -18,14 +26,16 @@ export function createApp({ issuer, clients, jwks, cookieKeys, adapter, accounts
     adapter, clients, jwks,
     cookies:{keys:cookieKeys},
     features:{devInteractions:{enabled:false},revocation:{enabled:true}},
-    interactions:{url:(_ctx,interaction)=>`/interaction/${interaction.uid}`},
+    interactions:{policy,url:(_ctx,interaction)=>`/interaction/${interaction.uid}`},
     pkce:{required:()=>true},
     responseTypes:['code'],
     ttl:{Interaction:900, AuthorizationCode:60, AccessToken:900, IdToken:900, Session:28800, Grant:28800},
     claims:{openid:['sub'],email:['email','email_verified']},
-    async findAccount(_ctx,id) {
+    async findAccount(ctx,id,source) {
       const user=accounts.byId(id);
       if (!user || user.disabled) return undefined;
+      const clientId=ctx.oidc?.client?.clientId || source?.clientId;
+      if (source && clientId && !permitted(clientId,id)) return undefined;
       return {accountId:user.id,async claims(){return {sub:user.id,email:user.email,email_verified:true};}};
     }
   });
@@ -36,6 +46,7 @@ export function createApp({ issuer, clients, jwks, cookieKeys, adapter, accounts
     const {prompt,params}=req.interaction;
     const client=await oidc.Client.find(params.client_id);
     const name=esc(client?.clientName || params.client_id);
+    if(prompt.name==='access_denied') return oidc.interactionFinished(req,res,{error:'access_denied',error_description:'This account does not have access to this application.'},{mergeWithLastSubmission:false});
     if(prompt.name==='login') return res.send(page('Sign in or create an account',`<p>Continue to ${name} with your email address. We’ll send you a one-time code.</p><form method="post" action="/interaction/${esc(req.params.uid)}/send"><label for="email">Email address</label><input id="email" type="email" name="email" autocomplete="email" required maxlength="254"><button>Send sign-in code</button></form><p class="note">Your account is created when you verify your email.</p>`));
     if(prompt.name==='consent') return res.send(page('Continue to the app?',`<p>${name} is requesting access to your account information.</p><form method="post" action="/interaction/${esc(req.params.uid)}/consent"><button>Continue</button></form>`));
     return res.status(400).send(page('Unable to continue','<p>Please restart sign-in.</p>'));
@@ -57,12 +68,12 @@ export function createApp({ issuer, clients, jwks, cookieKeys, adapter, accounts
     const email=challenges.verify(req.params.uid,typeof req.body.code==='string' ? req.body.code : '');
     if(!email) return res.status(400).send(page('Code not accepted','<p>The code is incorrect, expired, or has already been used. Return to the app to try again.</p>'));
     const user=accounts.getOrCreate(email);
-    if(user.disabled) return res.status(400).send(page('Unable to sign in','<p>Please contact the administrator.</p>'));
+    if(user.disabled || !permitted(req.interaction.params.client_id,user.id)) return res.status(400).send(page('Unable to sign in','<p>Please contact the administrator.</p>'));
     return oidc.interactionFinished(req,res,{login:{accountId:user.id}},{mergeWithLastSubmission:false});
   });
   app.post('/interaction/:uid/consent',sameOrigin,interaction,async(req,res)=>{
     const {prompt,grantId,session,params}=req.interaction;
-    if(prompt.name!=='consent' || !session || accounts.byId(session.accountId)?.disabled!==0) return res.sendStatus(400);
+    if(prompt.name!=='consent' || !session || accounts.byId(session.accountId)?.disabled!==0 || !permitted(params.client_id,session.accountId)) return res.sendStatus(400);
     const grant=grantId ? await oidc.Grant.find(grantId) : new oidc.Grant({accountId:session.accountId,clientId:params.client_id});
     if (!grant) return res.sendStatus(400);
     if(prompt.details.missingOIDCScope) grant.addOIDCScope(prompt.details.missingOIDCScope.join(' '));
